@@ -14,11 +14,6 @@ s3 = boto3.client('s3')
 BUCKET = os.environ["BUCKET_NAME"]
 
 # helper for opening DB connection, retrieve from lambda function env variables 
-@retry (
-    stop = stop_after_attempt(3),
-    wait = wait_exponential(multiplier=1, min=2, max=10),
-    reraise = True      
-)
 def get_dbConn():
     conn = pymysql.connect(
         host=os.environ["DB_HOST"],
@@ -31,6 +26,11 @@ def get_dbConn():
     return conn
 
 # helper for insertion into SQL table
+@retry (
+    stop = stop_after_attempt(3),
+    wait = wait_exponential(multiplier=1, min=2, max=10),
+    reraise = True      
+)
 def insert_image(image_id, s3_key):
     try:
         dbConn = get_dbConn()
