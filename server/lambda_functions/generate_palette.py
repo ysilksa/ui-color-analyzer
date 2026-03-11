@@ -7,7 +7,7 @@ import boto3
 import json
 import uuid
 import os
-import pymysql
+import psycopg2
 from tenacity import retry, stop_after_attempt, wait_exponential
 import numpy as np 
 from PIL import Image
@@ -20,14 +20,15 @@ BUCKET = os.environ["BUCKET_NAME"]
 # helper for opening DB connection, retrieve from lambda function env variables 
 #
 def get_dbConn():
-    conn = pymysql.connect(
+    conn = psycopg2.connect(
         host=os.environ["DB_HOST"],
         user=os.environ["DB_USER"],
         password=os.environ["DB_PASSWORD"],
-        database=os.environ["DB_NAME"],
-        autocommit=False
+        dbname=os.environ["DB_NAME"],
+        port=5432
     )
 
+    conn.autocommit = False
     return conn
 
 #
@@ -172,5 +173,5 @@ def lambda_handler(event, context):
     except Exception as err:
         return {
             "statusCode": 500,
-            "body": str(err)
+            "body": json.dumps({"error": "erroring in generating palette"})
         }

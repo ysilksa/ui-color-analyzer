@@ -13,7 +13,9 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 s3 = boto3.client('s3')
 BUCKET = os.environ["BUCKET_NAME"]
 
+#
 # helper for opening DB connection, retrieve from lambda function env variables 
+#
 def get_dbConn():
     conn = psycopg2.connect(
         host=os.environ["DB_HOST"],
@@ -22,6 +24,8 @@ def get_dbConn():
         dbname=os.environ["DB_NAME"],
         port=5432
     )
+
+    conn.autocommit = False
     return conn
 
 # helper for insertion into SQL table
@@ -85,5 +89,5 @@ def lambda_handler(event, context):
     except Exception as err:
         return {
             "statusCode": 500,
-            "body": "error in inserting image"
+            "body": json.dumps({"error": "error in creating image"})
         }

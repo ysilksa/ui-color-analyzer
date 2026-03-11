@@ -4,7 +4,7 @@
 #
 
 import os
-import pymysql
+import psycopg2
 import json
 import colorsys 
 import logging 
@@ -14,14 +14,15 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 # helper for opening DB connection, retrieve from lambda function env variables 
 #
 def get_dbConn():
-    conn = pymysql.connect(
+    conn = psycopg2.connect(
         host=os.environ["DB_HOST"],
         user=os.environ["DB_USER"],
         password=os.environ["DB_PASSWORD"],
-        database=os.environ["DB_NAME"],
-        autocommit=False
+        dbname=os.environ["DB_NAME"],
+        port=5432
     )
 
+    conn.autocommit = False
     return conn
 
 #
@@ -176,6 +177,6 @@ def lambda_handler(event, context):
 
         return {
             "statusCode": 500,
-            "body": json.dumps({"error": "internal server error"})
+            "body": json.dumps({"error": "erroring in creating harmony score"})
         } 
 
