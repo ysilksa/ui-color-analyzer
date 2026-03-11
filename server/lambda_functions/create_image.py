@@ -11,7 +11,10 @@ import psycopg2
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 s3 = boto3.client('s3')
+sqs = boto3.client("sqs")
+
 BUCKET = os.environ["BUCKET_NAME"]
+QUEUE_URL = os.environ["SQS_QUEUE_URL"]
 
 #
 # helper for opening DB connection, retrieve from lambda function env variables 
@@ -78,6 +81,14 @@ def lambda_handler(event, context):
 
         # call helper function for insertion into SQL table
         insert_image(image_id, s3_key)
+
+        # send message to SQS queue
+        sqs.send_message(
+            QueueUrl=QUEUE_URL,
+            MessageBody=json.dumps({
+                "image_id": image_id
+            })
+        )
 
         # return the image ID upon success
         return {

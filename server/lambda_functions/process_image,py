@@ -1,0 +1,28 @@
+import json
+import logging
+from generate_palette import generate_palette
+from calculate_harmony_score import create_harmony_score
+from calculate_contrast_score import create_contrast_score
+
+
+def lambda_handler(event, context):
+    try:
+        for record in event["Records"]:
+            body = json.loads(record["body"])
+            image_id = body["image_id"]
+
+            logging.info(f"Processing image {image_id}")
+
+            # steps in order 
+            generate_palette(image_id)
+            create_harmony_score(image_id)
+            create_contrast_score(image_id)
+
+        return {"status": "success"}
+
+    except Exception as err:
+
+        logging.error("Error processing image")
+        logging.error(str(err))
+
+        raise err

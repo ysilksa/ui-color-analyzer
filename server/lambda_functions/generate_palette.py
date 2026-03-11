@@ -153,14 +153,25 @@ def store_palette(image_id, palette):
         except:
             pass
 
+#
+# function for use in SQS 
+#
+def generate_palette(image_id):
+
+    s3_key = get_s3(image_id)
+    image = download_image(s3_key)
+    palette = extract_palette(image)
+
+    store_palette(image_id, palette)
+
+    return palette
+
 def lambda_handler(event, context):
     try:
         # grab the image id from the event
         image_id = event['image_id']
 
-        s3_key = get_s3(image_id)
-        image = download_image(s3_key)
-        palette = extract_palette(image)
+        palette = generate_palette(image_id)
 
         # store the palette in the DB 
         store_palette(image_id, palette)

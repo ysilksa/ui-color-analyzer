@@ -94,8 +94,10 @@ def query_images_by_score(score_type, threshold):
 #
 def lambda_handler(event, context):
     try:
-        score_type = event["score_type"]
-        threshold = float(event["threshold"])
+        params = event.get("queryStringParameters", {})
+
+        score_type = params["score_type"]
+        threshold = float(params["threshold"])
 
         results = query_images_by_score(score_type, threshold)
 
@@ -109,8 +111,9 @@ def lambda_handler(event, context):
             "statusCode": 400,
             "body": json.dumps({"error": str(err)})
         }
+
     except Exception:
         return {
             "statusCode": 500,
-            "body": json.dumps({"error": "erroring in querying images by score"})
+            "body": json.dumps({"error": "internal server error"})
         }
