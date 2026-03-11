@@ -11,7 +11,6 @@ import pymysql
 from tenacity import retry, stop_after_attempt, wait_exponential
 import numpy as np 
 from PIL import Image
-from sklearn.cluster import KMeans
 from io import BytesIO
 
 s3 = boto3.client("s3")
@@ -82,18 +81,40 @@ def download_image(s3_key):
 #
 # extract the palette from the image using numpy and k-means
 #
-def extract_palette(image):
+def extract_palette(image, k=5, max_iters=10):
+
+    # resize image to reduce computation
     image = image.resize((100, 100))
 
+    # convert to numpy pixel array
     pixels = np.array(image)
     pixels = pixels.reshape(-1, 3)
 
-    # use kmeans to generate a color palette 
-    kmeans = KMeans(n_clusters = 5)
-    kmeans.fit(pixels)
+    # randomly choose initial cluster centers
+    rng = np.random.default_rng()
+    centers = pixels[rng.choice(len(pixels), k, replace=False)]
 
-    colors = kmeans.cluster_centers_
-    palette = [list(map(int, c)) for c in colors]
+    for _ in range(max_iters):
+
+        # compute distance between pixels and centers
+        distances = np.linalg.norm(pixels[:, None] - centers, axis=2)
+
+        # assign pixels to nearest center
+        labels = np.argmin(distances, axis=1)
+
+        # recompute cluster centers
+        new_centers = np.array([
+            pixels[labels == i].mean(axis=0) if np.any(labels == i) else centers[i]
+            for i in range(k)
+        ])
+
+        # stop if centers stabilize
+        if np.allclose(centers, new_centers):
+            break
+
+        centers = new_centers
+
+    palette = centers.astype(int).tolist()
 
     return palette
 
