@@ -1,17 +1,24 @@
 #
-# Given an image ID, the image will be retrieved, and its harmony score will be calcuated from the palette given. 
+# Given an image ID, the image will be retrieved, and its harmony score will be calculated from the palette given. 
 # If the image has no palette yet, a client error is returned and the user is told to generate the palette first. 
 #
 
 import os
 import psycopg2
 import json
-import colorsys 
-import logging 
+import colorsys
+import logging
+import boto3
 from tenacity import retry, stop_after_attempt, wait_exponential
 
+logging.basicConfig(level=logging.INFO)
+
+sqs = boto3.client("sqs")
+QUEUE_URL = os.environ["QUEUE_URL"]
+
+
 #
-# helper for opening DB connection, retrieve from lambda function env variables 
+# helper for opening DB connection
 #
 def get_dbConn():
     conn = psycopg2.connect(
@@ -21,9 +28,9 @@ def get_dbConn():
         dbname=os.environ["DB_NAME"],
         port=5432
     )
-
     conn.autocommit = False
     return conn
+
 
 #
 # helper for retrieving palette based on image ID
@@ -32,20 +39,20 @@ def get_palette(image_id, dbCursor):
     sql = """
     SELECT palette FROM images WHERE image_id = %s;
     """
-
     dbCursor.execute(sql, [image_id])
     row = dbCursor.fetchone()
 
-    if not row: 
+    if not row:
         raise ValueError("no such image ID")
-    if row[0] == None:
+    if row[0] is None:
         raise ValueError("please generate the palette for this image first!")
-    
-    return json.loads(row[0])
 
-# 
+    return row[0]
+
+
+#
 # helper for turning RGB colors to HSB
-# 
+#
 def rgb_to_hues(palette):
     hues = []
 
@@ -53,27 +60,25 @@ def rgb_to_hues(palette):
         r /= 255
         g /= 255
         b /= 255
-
         h, s, v = colorsys.rgb_to_hsv(r, g, b)
-
         hues.append(h * 360)
 
     return hues
 
-# 
-# helper to calculate distance between 2 given hues
+
+#
+# helper to calculate distance between two hues
 #
 def calculate_hue_distance(h1, h2):
     diff = abs(h1 - h2)
     return min(diff, 360 - diff)
 
-
 #
-# helper to compute harmony given a color palette (in hues)
+# helper to compute harmony score
 #
 def compute_harmony(hues):
-    score = 0 
-    comparisons = 0 
+    score = 0
+    comparisons = 0
     hues_len = len(hues)
 
     for i in range(hues_len):
@@ -81,50 +86,51 @@ def compute_harmony(hues):
             distance = calculate_hue_distance(hues[i], hues[j])
             comparisons += 1
 
-            # add to score if complementary colors
+            # complementary
             if 150 <= distance <= 210:
                 score += 1
 
-            # add to score if analogous colors
+            # analogous
             elif distance <= 30:
                 score += 0.5
 
-            # add to score if triadic colors
+            # triadic
             elif 100 <= distance <= 140:
                 score += 0.8
-    
-    # get the avg 
+
     if comparisons > 0:
         score = score / comparisons
-    
-    return score 
+
+    return score
 
 #
 # store the harmony score
 #
 def store_harmony_score(image_id, score, dbCursor):
-
     sql = """
     UPDATE images
     SET harmony_score = %s
     WHERE image_id = %s;
     """
 
-    dbCursor.execute(sql, [score, image_id])    
+    dbCursor.execute(sql, [score, image_id])
+
 
 #
-# handles all the main logic in one function 
+# main logic for creating harmony score
 #
-@retry (
-    stop = stop_after_attempt(3),
-    wait = wait_exponential(multiplier=1, min=2, max=10),
-    reraise = True      
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=2, max=10),
+    reraise=True
 )
 def create_harmony_score(image_id):
+    dbConn = None
+    dbCursor = None
+
     try:
         dbConn = get_dbConn()
         dbCursor = dbConn.cursor()
-        dbConn.begin()
 
         palette = get_palette(image_id, dbCursor)
         hues = rgb_to_hues(palette)
@@ -135,48 +141,59 @@ def create_harmony_score(image_id):
 
         return score
     except Exception as err:
-        try:
+        if dbConn:
             dbConn.rollback()
-        except: 
-            pass
+
         logging.error("error in create_harmony_score")
         logging.error(str(err))
+
         raise
     finally:
         try:
-            dbConn.close()
+            if dbCursor:
+                dbCursor.close()
         except:
             pass
 
         try:
-            dbCursor.close()
+            if dbConn:
+                dbConn.close()
         except:
             pass
 
 
+#
+# lambda handler sqs 
+#
 def lambda_handler(event, context):
+
     try:
-        image_id = event['image_id']
+        for record in event["Records"]:
+            body = json.loads(record["body"])
+            image_id = body["image_id"]
+            logging.info(f"Calculating harmony score for {image_id}")
+            score = create_harmony_score(image_id)
 
-        score = create_harmony_score(image_id)
-
+            # send message to next queue
+            sqs.send_message(
+                QueueUrl=QUEUE_URL,
+                MessageBody=json.dumps({
+                    "image_id": image_id
+                })
+            )
         return {
             "statusCode": 200,
-            "body": json.dumps({
-                "image_id": image_id,
-                "harmony_score": score
-            })
+            "body": json.dumps({"message": "harmony score calculated"})
         }
     except ValueError as err:
-
         return {
             "statusCode": 400,
             "body": json.dumps({"error": str(err)})
         }
-    except Exception:
 
+    except Exception as err:
+        logging.error(str(err))
         return {
             "statusCode": 500,
-            "body": json.dumps({"error": "erroring in creating harmony score"})
-        } 
-
+            "body": json.dumps({"error": "error creating harmony score"})
+        }

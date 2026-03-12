@@ -8,13 +8,14 @@ import json
 import uuid
 import os
 import psycopg2
+import base64
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 s3 = boto3.client('s3')
 sqs = boto3.client("sqs")
 
 BUCKET = os.environ["BUCKET_NAME"]
-QUEUE_URL = os.environ["SQS_QUEUE_URL"]
+QUEUE_URL = os.environ["QUEUE_URL"]
 
 #
 # helper for opening DB connection, retrieve from lambda function env variables 
@@ -41,7 +42,6 @@ def insert_image(image_id, s3_key):
     try:
         dbConn = get_dbConn()
         dbCursor = dbConn.cursor()
-        dbConn.begin()
 
         sql = """
         INSERT INTO images (image_id, s3_key)
@@ -63,11 +63,19 @@ def insert_image(image_id, s3_key):
             pass
 
 
-
 def lambda_handler(event, context):
     try:
-        # generate ID for the image 
-        image_bytes = event['body']
+        body = event["body"]
+
+        if body is None:
+            raise Exception("Request body missing")
+
+        if event.get("isBase64Encoded", False):
+            image_bytes = base64.b64decode(body)
+        else:
+            image_bytes = body.encode("utf-8")
+
+        # generate ID
         image_id = str(uuid.uuid4())
         s3_key = "images/" + image_id + ".jpg"
 
@@ -100,5 +108,5 @@ def lambda_handler(event, context):
     except Exception as err:
         return {
             "statusCode": 500,
-            "body": json.dumps({"error": "error in creating image"})
+            "body": json.dumps({"error": str(err)})
         }

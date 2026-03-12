@@ -20,7 +20,6 @@ def get_dbConn():
     conn.autocommit = False
     return conn
 
-
 #
 # convert RGB palette to hex colors for UI display
 #
@@ -82,8 +81,7 @@ def get_image_details(image_id):
 
         # add palette if exists
         if palette is not None:
-            palette_list = json.loads(palette)
-            result["palette"] = rgb_to_hex(palette_list)
+            result["palette"] = rgb_to_hex(palette)
 
         # add harmony score if exists
         if harmony_score is not None:
@@ -117,7 +115,14 @@ def get_image_details(image_id):
 #
 def lambda_handler(event, context):
     try:
-        image_id = event["image_id"]
+        logging.info(json.dumps(event))
+        image_id = None
+
+        if event.get("pathParameters"):
+            image_id = event["pathParameters"].get("imageId")
+
+        if not image_id:
+            raise ValueError("missing image_id")
         result = get_image_details(image_id)
 
         return {

@@ -1,13 +1,11 @@
 import psycopg2
 import json
-import os 
-import colorsys 
-import logging 
+import os
+import logging
 from tenacity import retry, stop_after_attempt, wait_exponential
 
-
 #
-# helper for opening DB connection, retrieve from lambda function env variables 
+# helper for opening DB connection
 #
 def get_dbConn():
     conn = psycopg2.connect(
@@ -21,6 +19,7 @@ def get_dbConn():
     conn.autocommit = False
     return conn
 
+
 #
 # helper for retrieving palette based on image ID
 #
@@ -28,19 +27,20 @@ def get_palette(image_id, dbCursor):
     sql = """
     SELECT palette FROM images WHERE image_id = %s;
     """
-
     dbCursor.execute(sql, [image_id])
     row = dbCursor.fetchone()
 
-    if not row: 
+    if not row:
         raise ValueError("no such image ID")
-    if row[0] == None:
+
+    if row[0] is None:
         raise ValueError("please generate the palette for this image first!")
-    
-    return json.loads(row[0])
+
+    return row[0]
+
 
 #
-# calculate relative luminance (used AI to help find equations for this)
+# calculate relative luminance
 #
 def channel_transform(c):
     c = c / 255
@@ -49,49 +49,56 @@ def channel_transform(c):
     else:
         return ((c + 0.055) / 1.055) ** 2.4
 
+
 def compute_luminance(rgb):
     r, g, b = rgb
     r = channel_transform(r)
     g = channel_transform(g)
     b = channel_transform(b)
 
-    luminance = 0.2176 * r + 0.7152 * g + 0.0722 * b 
+    luminance = 0.2176 * r + 0.7152 * g + 0.0722 * b
+
     return luminance
 
 #
-# calculate the contrast ratio
+# calculate contrast ratio
 #
 def contrast_ratio(l1, l2):
     L1 = max(l1, l2)
     L2 = min(l1, l2)
+
     return (L1 + 0.05) / (L2 + 0.05)
 
+
 #
-# helpers for computing and storing the contrast score
+# compute contrast score
 #
 def compute_contrast_score(palette):
     luminances = [compute_luminance(color) for color in palette]
     ratios = []
-    len_luminances = len(luminances)
+    for i in range(len(luminances)):
+        for j in range(i + 1, len(luminances)):
 
-    for i in range(len_luminances):
-        for j in range(i + 1, len_luminances):
             ratio = contrast_ratio(luminances[i], luminances[j])
+
             ratios.append(ratio)
 
-    # count the number of WCAG complaint counts
-    passing = 0 
+    passing = 0
+
     for r in ratios:
-        if r >= 4.5: # threshold for the WCAG AA text contrast
+        if r >= 4.5:   # WCAG AA threshold
             passing += 1
-        
+
     if len(ratios) == 0:
-        return 0 
+        return 0
 
     return passing / len(ratios)
 
-def store_contrast_score(image_id, score, dbCursor):
 
+#
+# store contrast score
+#
+def store_contrast_score(image_id, score, dbCursor):
     sql = """
     UPDATE images
     SET contrast_score = %s
@@ -101,24 +108,28 @@ def store_contrast_score(image_id, score, dbCursor):
     dbCursor.execute(sql, [score, image_id])
 
 #
-# helper with main logic
+# main contrast logic
 #
-@retry (
-    stop = stop_after_attempt(3),
-    wait = wait_exponential(multiplier=1, min=2, max=10),
-    reraise = True      
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=2, max=10),
+    reraise=True
 )
 def create_contrast_score(image_id):
+    dbConn = None
+    dbCursor = None
     try:
         dbConn = get_dbConn()
         dbCursor = dbConn.cursor()
-        dbConn.begin()
 
         palette = get_palette(image_id, dbCursor)
+
         score = compute_contrast_score(palette)
+
         store_contrast_score(image_id, score, dbCursor)
 
         dbConn.commit()
+
         return score
     except Exception as err:
         try:
@@ -126,9 +137,9 @@ def create_contrast_score(image_id):
                 dbConn.rollback()
         except:
             pass
-
         logging.error("error in create_contrast_score")
         logging.error(str(err))
+
         raise
     finally:
         try:
@@ -143,19 +154,21 @@ def create_contrast_score(image_id):
         except:
             pass
 
+
 #
-# overall lambda handler
+# lambda handler sqs 
 #
 def lambda_handler(event, context):
     try:
-        image_id = event['image_id']
-        score = create_contrast_score(image_id)
-
+        for record in event["Records"]:
+            body = json.loads(record["body"])
+            image_id = body["image_id"]
+            logging.info(f"Calculating contrast score for {image_id}")
+            score = create_contrast_score(image_id)
         return {
             "statusCode": 200,
             "body": json.dumps({
-                "image_id": image_id,
-                "contrast_score": score
+                "message": "contrast score calculated"
             })
         }
     except ValueError as err:

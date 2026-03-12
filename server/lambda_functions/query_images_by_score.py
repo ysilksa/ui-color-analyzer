@@ -34,7 +34,7 @@ def query_images(score_type, threshold, dbCursor):
         raise ValueError("invalid score_type (must be harmony or contrast)")
 
     # ok since it's not user input 
-    sql = """
+    sql = f"""
         SELECT image_id, {column} 
         FROM images
         WHERE {column} IS NOT NULL
@@ -94,7 +94,7 @@ def query_images_by_score(score_type, threshold):
 #
 def lambda_handler(event, context):
     try:
-        params = event.get("queryStringParameters", {})
+        params = event["queryStringParameters"]
 
         score_type = params["score_type"]
         threshold = float(params["threshold"])
@@ -111,9 +111,8 @@ def lambda_handler(event, context):
             "statusCode": 400,
             "body": json.dumps({"error": str(err)})
         }
-
     except Exception:
         return {
             "statusCode": 500,
-            "body": json.dumps({"error": "internal server error"})
+            "body": json.dumps({"error": "erroring in querying images by score"})
         }
