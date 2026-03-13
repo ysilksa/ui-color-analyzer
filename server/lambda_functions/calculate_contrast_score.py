@@ -69,7 +69,6 @@ def contrast_ratio(l1, l2):
 
     return (L1 + 0.05) / (L2 + 0.05)
 
-
 #
 # compute contrast score
 #
@@ -78,9 +77,7 @@ def compute_contrast_score(palette):
     ratios = []
     for i in range(len(luminances)):
         for j in range(i + 1, len(luminances)):
-
             ratio = contrast_ratio(luminances[i], luminances[j])
-
             ratios.append(ratio)
 
     passing = 0
